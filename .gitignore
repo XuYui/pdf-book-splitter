@@ -1,0 +1,23 @@
+# 这个文件夹默认也是书库：放进来的 PDF 和导出的图片都在这里，config.json 里还存着 API Key。
+# 所以反过来写：先忽略根目录下的一切，再把项目自己的文件一个个放行。
+/*
+!/.gitignore
+!/.gitattributes
+!/.github/
+!/README.md
+!/LICENSE
+!/requirements.txt
+!/requirements-dev.txt
+!/pytest.ini
+!/config.example.json
+!/app.py
+!/split_book.py
+!/启动分页器.bat
+!/拖入PDF开始分页.bat
+!/web/
+!/tests/
+!/docs/
+
+__pycache__/
+*.pyc
+.pytest_cache/

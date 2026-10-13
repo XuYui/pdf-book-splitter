@@ -1,0 +1,14 @@
+{
+  "api_key": "",
+  "base_url": "https://api.deepseek.com",
+  "model": "deepseek-flash",
+  "extra_body": {"thinking": {"type": "disabled"}},
+  "toc_scan_pages": 40,
+  "folder": "",
+  "output": "",
+  "long_edge": 1600,
+  "format": "jpg",
+  "quality": 80,
+  "export_text": true,
+  "ignore_bookmarks": false
+}

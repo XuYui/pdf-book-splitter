@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>电子书分页器</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d1c1a'/%3E%3Cpath d='M9 10h14M9 16h14M9 22h9' stroke='%23fff' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --text: #1d1c1a;
+  --muted: #68655f;
+  --line: #e2dfd8;
+  --ok: #2e6b47;
+  --warn: #8f5f0c;
+  --bad: #b3261e;
+  --sans: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
+  --mono: "Cascadia Mono", Consolas, "SF Mono", monospace;
+}
+/* 所有尺寸都用 rem，基准字号跟着窗口宽度走：1920 宽时 16px，4K 宽时 24px，
+   这样大屏幕上字不会小得看不清，版面也始终铺满窗口 */
+html { font-size: clamp(15px, calc(8px + 0.42vw), 24px); }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 1rem/1.6 var(--sans); }
+button, input, select { font: inherit; color: inherit; }
+h1, h2, h3, p { margin: 0; }
+
+.app { display: grid; grid-template-columns: 24rem minmax(0, 1fr); min-height: 100vh; }
+.side {
+  position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+  padding: 1.6rem 1.75rem 2rem; background: var(--surface); border-right: 1px solid var(--line);
+}
+.main { display: flex; flex-direction: column; padding: 1.6rem 2.25rem 2.25rem; min-width: 0; }
+
+h1 { font: 600 1.6rem/1.3 var(--serif); letter-spacing: .02em; }
+.lede { margin-top: .2rem; color: var(--muted); font-size: .9375rem; }
+.block { margin-top: 1.25rem; padding-top: 1.1rem; border-top: 1px solid var(--line); }
+h2 { font-size: 1rem; font-weight: 600; margin-bottom: .6rem; }
+.hint { color: var(--muted); font-size: .8125rem; margin-top: .55rem; }
+
+.btn {
+  border: 1px solid var(--line); background: var(--surface); border-radius: .4rem; padding: .34rem .85rem;
+  font-size: .9375rem; cursor: pointer; white-space: nowrap; transition: border-color .15s, background .15s;
+}
+.btn:hover:not(:disabled) { border-color: var(--text); }
+.btn.primary { background: var(--text); border-color: var(--text); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: #000; }
+.btn:disabled { opacity: .4; cursor: default; }
+.input {
+  width: 100%; border: 1px solid var(--line); border-radius: .4rem; padding: .45rem .7rem; background: var(--surface);
+  outline: none; min-width: 0; font-size: .9375rem;
+}
+.input:focus { border-color: var(--text); }
+.input.mono { font-family: var(--mono); font-size: .875rem; }
+.input::placeholder { color: #9d9990; font-family: var(--sans); }
+.row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.row + .row, .input + .row, .path + .row { margin-top: .65rem; }
+.field { display: grid; grid-template-columns: 5rem minmax(0, 1fr); align-items: center; gap: .6rem; margin-top: .65rem; }
+.field > span { color: var(--muted); font-size: .9375rem; }
+.tick { display: flex; align-items: center; gap: .55rem; margin-top: .7rem; cursor: pointer; font-size: .9375rem; }
+.tick input { width: 1.05rem; height: 1.05rem; margin: 0; accent-color: var(--text); flex: none; }
+.path { font: .875rem/1.55 var(--mono); word-break: break-all; }
+.path.plain { font: .9375rem/1.55 var(--sans); }
+.status { font-size: .875rem; margin-top: .6rem; color: var(--muted); overflow-wrap: anywhere; }
+.status:empty { display: none; }
+.status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
+details { margin-top: .7rem; }
+summary { cursor: pointer; color: var(--muted); font-size: .875rem; width: fit-content; }
+summary:hover { color: var(--text); }
+
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.count { font-size: 1.35rem; font-weight: 600; }
+.count small { font-size: .9375rem; font-weight: 400; color: var(--muted); margin-left: .8rem; }
+.uploads { list-style: none; margin: 0; padding: 0; color: var(--muted); font-size: .9375rem; }
+.uploads li { margin-top: .7rem; }
+
+/* 书按卡片排成几列，窗口越宽列越多；展开了详情的那本独占一整行 */
+#books { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 30rem), 1fr)); gap: 1rem; margin-top: 1.1rem; }
+#books:empty { display: none; }
+.book {
+  display: flex; flex-direction: column; min-width: 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: .75rem; padding: 1.2rem 1.35rem 1.1rem;
+}
+.book-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.book.open { grid-column: 1 / -1; }
+.book-title { font-size: 1.2rem; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.meta { margin-top: .45rem; display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .9rem; color: var(--muted); font-size: .9375rem; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 0 .7rem; font-size: .875rem; color: var(--text); background: var(--surface); }
+.chip.scan { background: #efece5; }
+.chip.ghost { border-style: dashed; color: var(--muted); background: none; }
+.note { margin-top: .6rem; font-size: .9375rem; color: var(--warn); max-width: 46em; }
+.note.bad { color: var(--bad); }
+.acts { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; flex-wrap: wrap; margin-top: auto; padding-top: 1rem; }
+.done, .waiting { margin-right: auto; font-size: 1rem; white-space: nowrap; }
+.done { color: var(--ok); font-weight: 600; }
+.done::before { content: "✓ "; }
+.waiting { color: var(--muted); }
+
+.progress { margin-top: .9rem; }
+.bar { height: .35rem; border-radius: 1rem; background: var(--line); position: relative; overflow: hidden; }
+.bar-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--text); border-radius: 1rem; transition: width .5s linear; }
+.bar.unknown .bar-fill { width: 30% !important; animation: slide 1.2s ease-in-out infinite alternate; transition: none; }
+@keyframes slide { from { left: 0; } to { left: 70%; } }
+.progress-line { display: flex; justify-content: space-between; gap: 1rem; margin-top: .4rem; font-size: .875rem; color: var(--muted); }
+.progress-line span:last-child { font-family: var(--mono); white-space: nowrap; }
+
+.detail { margin-top: 1rem; min-width: 0; }
+/* 窗口够宽时，展开的卡片左边是这本书的概况，右边是章节表 */
+@media (min-width: 1500px) {
+  .book.open { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); column-gap: 2rem; align-items: start; }
+  .book.open .detail { margin-top: 0; }
+  .book.open .detail > :first-child { margin-top: 0; }
+}
+table { border-collapse: collapse; width: 100%; font-size: .9375rem; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; }
+th { text-align: left; font-weight: 600; color: var(--muted); font-size: .875rem; padding: .5rem .9rem; border-bottom: 1px solid var(--line); background: #faf9f7; }
+td { padding: .45rem .9rem; border-bottom: 1px solid #efede8; vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+.num { font-family: var(--mono); font-size: .875rem; white-space: nowrap; }
+.unsure { color: var(--warn); font-size: .8125rem; margin-left: .5rem; white-space: nowrap; }
+.log { margin: .7rem 0 0; padding: .7rem .9rem; background: #f1efea; border-radius: .5rem; font: .8125rem/1.7 var(--mono); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14rem; overflow: auto; }
+
+/* 列表下面剩下的地方是放书的区域：可以拖进来，也可以点 */
+.drop {
+  flex: 1; min-height: 8rem; max-height: 14rem; margin-top: 1rem; border: 1.5px dashed #cdc8be; border-radius: .75rem;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .3rem;
+  background: none; color: var(--muted); font-size: 1.05rem; cursor: pointer; transition: border-color .15s, color .15s, background .15s;
+}
+.drop:hover { border-color: var(--text); color: var(--text); background: #ffffff80; }
+.drop small { font-size: .875rem; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 2rem; transform: translate(-50%, 1.2rem); opacity: 0; z-index: 30; pointer-events: none;
+  background: var(--text); color: #fff; padding: .6rem 1.2rem; border-radius: .5rem; font-size: .9375rem; max-width: min(40rem, 86vw);
+  transition: opacity .2s, transform .2s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.veil { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center; background: #f6f5f2e6; font: 600 1.8rem var(--serif); }
+.veil::before { content: ""; position: absolute; inset: 1.2rem; border: 2px dashed var(--text); border-radius: 1rem; }
+.veil.show { display: flex; }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .side { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .main { padding: 1.5rem 1.25rem 2rem; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="side">
+    <h1>电子书分页器</h1>
+    <p class="lede">把 PDF 按章节拆成逐页图片</p>
+
+    <section class="block">
+      <h2>大模型 API Key</h2>
+      <input class="input mono" id="key" type="password" autocomplete="off" spellcheck="false">
+      <div class="row">
+        <button class="btn primary" id="key-save" disabled>保存</button>
+        <button class="btn" id="key-test">测试连接</button>
+        <button class="btn" id="key-clear">清除</button>
+      </div>
+      <p class="status" id="key-status"></p>
+      <p class="hint">没书签的书才用得到，只保存在这台电脑上。</p>
+      <details>
+        <summary>接口地址和模型（默认 DeepSeek）</summary>
+        <label class="field"><span>接口地址</span><input class="input mono" id="base-url" spellcheck="false"></label>
+        <label class="field"><span>模型</span><input class="input mono" id="model" spellcheck="false"></label>
+        <div class="row"><button class="btn" id="api-save">保存</button></div>
+      </details>
+    </section>
+
+    <section class="block">
+      <h2>书库（放 PDF 的文件夹）</h2>
+      <p class="path" id="folder-path"></p>
+      <div class="row">
+        <button class="btn" data-pick="folder">更换…</button>
+        <button class="btn" data-type="folder">输入路径</button>
+        <button class="btn" data-open="folder">打开</button>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2>导出位置</h2>
+      <p class="path" id="output-path"></p>
+      <div class="row">
+        <button class="btn" data-pick="output">选择…</button>
+        <button class="btn" data-type="output">输入路径</button>
+        <button class="btn" id="output-reset">恢复默认</button>
+        <button class="btn" data-open="output">打开</button>
+      </div>
+      <p class="hint">每本书一个以书名命名的文件夹。</p>
+    </section>
+
+    <section class="block">
+      <h2>导出设置</h2>
+      <label class="field"><span>图片长边</span>
+        <select class="input" id="opt-long-edge">
+          <option value="1200">1200 像素（更省）</option>
+          <option value="1600">1600 像素（推荐）</option>
+          <option value="2000">2000 像素</option>
+          <option value="2400">2400 像素（小字多的书）</option>
+        </select>
+      </label>
+      <label class="field"><span>图片格式</span>
+        <select class="input" id="opt-format">
+          <option value="jpg">JPG</option>
+          <option value="webp">WebP（更小）</option>
+          <option value="png">PNG（无损，很大）</option>
+        </select>
+      </label>
+      <label class="tick"><input type="checkbox" id="opt-text">同时导出每章的文字</label>
+      <label class="tick"><input type="checkbox" id="opt-ignore">不用书签，一律让大模型识别目录</label>
+    </section>
+  </aside>
+
+  <main class="main">
+    <div class="toolbar">
+      <div class="count" id="count"></div>
+      <div class="row">
+        <button class="btn" id="cancel" hidden>取消排队</button>
+        <button class="btn" id="add">添加 PDF…</button>
+        <button class="btn primary" id="start-all" disabled>全部开始</button>
+        <input type="file" id="file" accept=".pdf,application/pdf" multiple hidden>
+      </div>
+    </div>
+    <ul class="uploads" id="uploads"></ul>
+    <div id="books"></div>
+    <button class="drop" id="drop"><span id="drop-text"></span><small>也可以把文件直接拖进这个窗口</small></button>
+  </main>
+</div>
+
+<div class="veil" id="veil">松开鼠标，添加到书库</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (selector, root = document) => root.querySelector(selector);
+const HEADERS = {"Content-Type": "application/json", "X-Requested-With": "book-splitter"};
+const esc = (text) => String(text ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+
+let state = null;
+let timer = null;
+const cards = new Map();     // 文件名 -> 卡片元素
+const toggled = new Map();   // 用户手动展开或收起过详情的书：文件名 -> 是否展开
+const sections = new Map();  // 文件名 -> 分好的文件夹列表
+
+async function api(path, body) {
+  const options = body === undefined ? {} : {method: "POST", headers: HEADERS, body: JSON.stringify(body)};
+  const response = await fetch(path, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "请求失败");
+  return data;
+}
+
+function toast(message) {
+  const el = $("#toast");
+  el.textContent = message;
+  el.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => el.classList.remove("show"), 4200);
+}
+
+async function act(run) {
+  try { await run(); } catch (err) { toast(err.message); }
+  await refresh();
+}
+
+async function refresh() {
+  clearTimeout(timer);
+  try {
+    state = await api("/api/state");
+    renderConfig(state.config);
+    renderBooks(state.books);
+  } catch (err) {
+    toast("连不上分页器：它的窗口是不是关掉了？");
+  }
+  // 有书在处理或在辨认类型时勤快一点，平时隔几秒看一眼书库里有没有新书
+  timer = setTimeout(refresh, state && (state.busy || state.sniffing) ? 700 : 4000);
+}
+
+/* ---------- 设置 ---------- */
+
+function renderConfig(config) {
+  $("#key").placeholder = config.has_key
+    ? `已保存${config.key_hint ? "，尾号 " + config.key_hint : ""}。粘贴新的可以替换`
+    : "粘贴 API Key（sk- 开头）";
+  $("#key-test").disabled = !config.has_key;
+  $("#key-clear").hidden = !config.has_key;
+  for (const [id, value] of [["#base-url", config.base_url], ["#model", config.model]]) {
+    const input = $(id);
+    if (document.activeElement !== input && !input.dataset.dirty) input.value = value;
+  }
+  $("#folder-path").textContent = config.folder;
+  $("#output-path").textContent = config.output || "和 PDF 放在一起（默认）";
+  $("#output-path").classList.toggle("plain", !config.output);
+  $("#output-reset").hidden = !config.output;
+  const edge = $("#opt-long-edge");
+  if (document.activeElement !== edge) {
+    if (![...edge.options].some((o) => o.value === String(config.long_edge))) edge.add(new Option(`${config.long_edge} 像素`, config.long_edge));
+    edge.value = config.long_edge;
+  }
+  if (document.activeElement !== $("#opt-format")) $("#opt-format").value = config.format;
+  $("#opt-text").checked = config.export_text;
+  $("#opt-ignore").checked = config.ignore_bookmarks;
+}
+
+function keyStatus(text, kind = "") {
+  const el = $("#key-status");
+  el.textContent = text;
+  el.className = "status " + kind;
+}
+
+$("#key").addEventListener("input", () => { $("#key-save").disabled = !$("#key").value.trim(); });
+$("#key").addEventListener("keydown", (event) => { if (event.key === "Enter") $("#key-save").click(); });
+$("#key-save").addEventListener("click", () => act(async () => {
+  await api("/api/config", {api_key: $("#key").value.trim()});
+  $("#key").value = "";
+  $("#key-save").disabled = true;
+  keyStatus("已保存。点「测试连接」可以看看它能不能用。", "ok");
+}));
+$("#key-test").addEventListener("click", async () => {
+  const button = $("#key-test");
+  button.disabled = true;
+  keyStatus("正在连接…");
+  try {
+    const result = await api("/api/test-key", {});
+    keyStatus(result.message, result.ok ? "ok" : "bad");
+  } catch (err) {
+    keyStatus(err.message, "bad");
+  }
+  button.disabled = false;
+});
+$("#key-clear").addEventListener("click", () => {
+  if (!confirm("清除保存的 API Key？")) return;
+  act(async () => { await api("/api/config", {api_key: ""}); keyStatus("已清除。"); });
+});
+for (const id of ["#base-url", "#model"]) $(id).addEventListener("input", (event) => { event.target.dataset.dirty = "1"; });
+$("#api-save").addEventListener("click", () => act(async () => {
+  await api("/api/config", {base_url: $("#base-url").value, model: $("#model").value});
+  delete $("#base-url").dataset.dirty;
+  delete $("#model").dataset.dirty;
+  keyStatus("接口地址和模型已保存。", "ok");
+}));
+
+const saveOption = (changes) => act(() => api("/api/config", changes));
+$("#opt-long-edge").addEventListener("change", (event) => saveOption({long_edge: Number(event.target.value)}));
+$("#opt-format").addEventListener("change", (event) => saveOption({format: event.target.value}));
+$("#opt-text").addEventListener("change", (event) => saveOption({export_text: event.target.checked}));
+$("#opt-ignore").addEventListener("change", (event) => saveOption({ignore_bookmarks: event.target.checked}));
+
+/* ---------- 文件夹：书库（folder）和导出位置（output） ---------- */
+
+for (const button of document.querySelectorAll("[data-pick]")) {
+  button.addEventListener("click", () => act(async () => {
+    toast("选文件夹的窗口已经弹出，可能被浏览器挡在后面");
+    await api("/api/pick-folder", {which: button.dataset.pick});
+  }));
+}
+for (const button of document.querySelectorAll("[data-type]")) {
+  button.addEventListener("click", () => {
+    const which = button.dataset.type;
+    const path = prompt("粘贴文件夹的完整路径：", state ? state.config[which] || state.config.folder : "");
+    if (path) act(() => api("/api/folder", {which, path}));
+  });
+}
+for (const button of document.querySelectorAll("[data-open]")) {
+  button.addEventListener("click", () => act(() => api("/api/open", {which: button.dataset.open})));
+}
+$("#output-reset").addEventListener("click", () => act(() => api("/api/folder", {which: "output", path: ""})));
+
+/* ---------- 添加 PDF ---------- */
+
+function upload(files) {
+  for (const file of files) {
+    if (!/\.pdf$/i.test(file.name)) { toast(`只能添加 PDF：${file.name}`); continue; }
+    const item = document.createElement("li");
+    item.textContent = `正在添加 ${file.name}…`;
+    $("#uploads").append(item);
+    const request = new XMLHttpRequest();
+    request.open("POST", "/api/upload?name=" + encodeURIComponent(file.name));
+    request.setRequestHeader("X-Requested-With", "book-splitter");
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) item.textContent = `正在添加 ${file.name}… ${Math.round(event.loaded / event.total * 100)}%`;
+    };
+    request.onloadend = () => {
+      item.remove();
+      let message = "";
+      try { message = JSON.parse(request.responseText).error || ""; } catch (err) { message = request.status ? "" : "没添加成功，连接断了"; }
+      if (message) toast(message);
+      refresh();
+    };
+    request.send(file);
+  }
+}
+$("#add").addEventListener("click", () => $("#file").click());
+$("#drop").addEventListener("click", () => $("#file").click());
+$("#file").addEventListener("change", (event) => { upload(event.target.files); event.target.value = ""; });
+let dragDepth = 0;
+const hasFiles = (event) => [...(event.dataTransfer?.types || [])].includes("Files");
+addEventListener("dragenter", (event) => { if (hasFiles(event)) { dragDepth++; $("#veil").classList.add("show"); } });
+addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("#veil").classList.remove("show"); } });
+addEventListener("dragover", (event) => { if (hasFiles(event)) event.preventDefault(); });
+addEventListener("drop", (event) => {
+  if (!hasFiles(event)) return;
+  event.preventDefault();
+  dragDepth = 0;
+  $("#veil").classList.remove("show");
+  upload(event.dataTransfer.files);
+});
+
+/* ---------- 书 ---------- */
+
+// 卡片现在是哪种样子；样子变了整张重画，没变（处理中）就只改进度
+function lookOf(book) {
+  const status = book.job ? book.job.status : "";
+  if (status === "queued" || status === "running" || status === "error") return status;
+  return book.state;  // new / done / partial / conflict
+}
+
+// 详情（章节表、处理过程）要不要展开：用户点过就听用户的；没点过的话，书少时默认展开
+function isOpen(book, look) {
+  if (!["done", "running", "error"].includes(look)) return false;
+  if (toggled.has(book.name)) return toggled.get(book.name);
+  return state.books.length <= 2;
+}
+
+function sizeText(bytes) {
+  return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB";
+}
+
+function metaHTML(book, look) {
+  const parts = [];
+  if (book.kind === null) parts.push(`<span class="chip ghost">辨认中…</span>`);
+  else if (book.kind) parts.push(`<span class="chip ${book.kind.startsWith("文字") ? "text" : "scan"}">${esc(book.kind)}</span>`);
+  if (book.pages) parts.push(`<span>${book.pages} 页</span>`);
+  parts.push(`<span>${sizeText(book.size)}</span>`);
+  if (look === "done" && book.info) {
+    parts.push(`<span>${book.info.folders} 个文件夹</span>`);
+    if (book.info.source) parts.push(`<span>章节来自：${esc(book.info.source)}</span>`);
+  }
+  return parts.join("");
+}
+
+function notesHTML(book, look) {
+  const last = ((book.job && book.job.log) || []).at(-1) || "";
+  if (look === "error") return `<p class="note bad">${esc(last || "处理失败")}</p>`;
+  if (look === "partial") return `<p class="note">上次没做完，再点一次会从头重做。</p>`;
+  if (look === "conflict") return `<p class="note">导出位置里已经有一个同名文件夹，而且不是分页器生成的。把它改名或移走，就能分这本书了。</p>`;
+  if (look !== "done" || !book.info) return "";
+  if (book.info.source.startsWith("无")) {
+    return `<p class="note">没能分章：这本书没有书签，所有页面放在了同一个文件夹里。填好 API Key 后点「重做」，让大模型识别目录。</p>`;
+  }
+  if (book.info.unchecked) {
+    return `<p class="note">有 ${book.info.unchecked} 章的起始页没能核对上，是按目录上的页码推算的，点「章节」可以看到是哪几章。</p>`;
+  }
+  return "";
+}
+
+function actsHTML(look) {
+  switch (look) {
+    case "new": return `<button class="btn primary" data-act="start">开始分页</button>`;
+    case "partial": return `<button class="btn primary" data-act="start">重新开始</button>`;
+    case "conflict": return `<button class="btn" data-act="open">打开文件夹</button>`;
+    case "queued": return `<span class="waiting">排队中</span>`;
+    case "running": return `<span class="waiting">分页中</span><button class="btn" data-act="toggle">过程</button>`;
+    case "error": return `<button class="btn" data-act="toggle">过程</button><button class="btn primary" data-act="start">重试</button>`;
+    default: return `<span class="done">已分页</span><button class="btn" data-act="toggle">章节</button><button class="btn" data-act="open">打开文件夹</button><button class="btn" data-act="redo">重做</button>`;
+  }
+}
+
+function progressHTML() {
+  return `<div class="progress"><div class="bar unknown"><div class="bar-fill"></div></div>
+    <div class="progress-line"><span class="message"></span><span class="tally"></span></div></div>`;
+}
+
+function detailHTML(book, look) {
+  let html = "";
+  if (look === "done") {
+    const rows = sections.get(book.name);
+    if (!rows) html += `<p class="hint">正在读取…</p>`;
+    else html += `<table><thead><tr><th>文件夹</th><th class="num">页数</th><th class="num">图片编号</th><th class="num">印刷页码</th></tr></thead><tbody>${
+      rows.map((row) => `<tr><td>${esc(row.folder)}${row.checked ? "" : `<span class="unsure">起始页未核对</span>`}</td><td class="num">${row.pages}</td><td class="num">${esc(row.files)}</td><td class="num">${esc(row.printed)}</td></tr>`).join("")
+    }</tbody></table>`;
+  }
+  const log = (book.job && book.job.log) || [];
+  if (log.length) html += `<pre class="log">${esc(log.join("\n"))}</pre>`;
+  else if (look !== "done") html += `<pre class="log">还没有记录。</pre>`;
+  return html;
+}
+
+function updateProgress(card, book) {
+  const job = book.job;
+  $(".message", card).textContent = job.message || "";
+  $(".bar", card).classList.toggle("unknown", !job.total);
+  $(".bar-fill", card).style.width = job.total ? (job.done / job.total * 100).toFixed(1) + "%" : "";
+  $(".tally", card).textContent = job.total ? `${job.done} / ${job.total}` : "";
+  const log = $(".log", card);
+  if (log) {
+    const text = job.log.length ? job.log.join("\n") : "还没有记录。";
+    if (log.textContent !== text) { log.textContent = text; log.scrollTop = log.scrollHeight; }
+  }
+}
+
+function buildCard(book, look, before, open) {
+  const card = document.createElement("article");
+  card.className = "book" + (open ? " open" : "");
+  card.dataset.name = book.name;
+  card.dataset.look = look;
+  if (look === "done" && before && before !== "done") sections.delete(book.name);  // 刚重做完，章节表要重新读
+  card.innerHTML = `
+    <div class="book-main">
+      <h3 class="book-title">${esc(book.title)}</h3>
+      <div class="meta">${metaHTML(book, look)}</div>
+      ${notesHTML(book, look)}
+      ${look === "running" ? progressHTML() : ""}
+      <div class="acts">${actsHTML(look)}</div>
+    </div>
+    ${open ? `<div class="detail">${detailHTML(book, look)}</div>` : ""}`;
+  if (look === "running") updateProgress(card, book);
+  if (look === "done" && open && !sections.has(book.name)) loadSections(book.name);
+  return card;
+}
+
+async function loadSections(name) {
+  try {
+    sections.set(name, (await api("/api/book?name=" + encodeURIComponent(name))).sections);
+  } catch (err) {
+    sections.set(name, []);
+  }
+  redraw(name);
+}
+
+function redraw(name) {
+  const card = cards.get(name);
+  if (card) card.dataset.sig = "";
+  if (state) renderBooks(state.books);
+}
+
+function renderBooks(books) {
+  const list = $("#books");
+  const present = new Set();
+  books.forEach((book, index) => {
+    present.add(book.name);
+    const look = lookOf(book);
+    const open = isOpen(book, look);
+    const sig = JSON.stringify([book, open]);
+    let card = cards.get(book.name);
+    if (!card || card.dataset.sig !== sig) {
+      if (card && look === "running" && card.dataset.look === "running" && card.dataset.open === String(open)) {
+        updateProgress(card, book);
+      } else {
+        const next = buildCard(book, look, card ? card.dataset.look : null, open);
+        next.dataset.open = String(open);
+        if (card) card.replaceWith(next);
+        cards.set(book.name, card = next);
+      }
+      card.dataset.sig = sig;
+    }
+    if (list.children[index] !== card) list.insertBefore(card, list.children[index] || null);
+  });
+  for (const [name, card] of cards) {
+    if (!present.has(name)) { card.remove(); cards.delete(name); }
+  }
+  $("#drop-text").textContent = books.length ? "点这里添加 PDF" : "书库里还没有 PDF，点这里添加";
+
+  const todo = books.filter((book) => ["new", "partial"].includes(lookOf(book)));
+  const queued = books.filter((book) => lookOf(book) === "queued").length;
+  const done = books.filter((book) => lookOf(book) === "done").length;
+  $("#count").innerHTML = `${books.length} 本书<small>已分页 ${done} · 待分页 ${todo.length}</small>`;
+  $("#start-all").disabled = !todo.length;
+  $("#start-all").textContent = todo.length > 1 ? `全部开始（${todo.length} 本）` : "全部开始";
+  $("#cancel").hidden = !queued;
+}
+
+$("#books").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-act]");
+  if (!button) return;
+  const name = button.closest(".book").dataset.name;
+  switch (button.dataset.act) {
+    case "start":
+      return act(() => api("/api/start", {names: [name], force: false}));
+    case "redo":
+      if (confirm("重做会删掉这本书已经导出的文件夹，再重新分页。继续吗？")) act(() => api("/api/start", {names: [name], force: true}));
+      return;
+    case "open":
+      return act(() => api("/api/open", {name}));
+    case "toggle":
+      toggled.set(name, button.closest(".book").dataset.open !== "true");
+      return redraw(name);
+  }
+});
+$("#start-all").addEventListener("click", () => act(() => {
+  const names = state.books.filter((book) => ["new", "partial"].includes(lookOf(book))).map((book) => book.name);
+  return api("/api/start", {names, force: false});
+}));
+$("#cancel").addEventListener("click", () => act(() => api("/api/cancel", {})));
+
+refresh();
+</script>
+</body>
+</html>
